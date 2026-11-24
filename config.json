@@ -1,0 +1,36 @@
+{
+  "bank_server": {
+    "host": "127.0.0.1",
+    "port": 6000,
+    "processing_delay": 0.4,
+    "initial_accounts": {
+      "A": 1000.0,
+      "B": 1000.0,
+      "C": 1000.0
+    }
+  },
+  "ring": {
+    "token_pass_delay": 0.8,
+    "retry_interval": 1.0,
+    "processes": [
+      {
+        "id": 0,
+        "name": "P0",
+        "host": "127.0.0.1",
+        "port": 5000
+      },
+      {
+        "id": 1,
+        "name": "P1",
+        "host": "127.0.0.1",
+        "port": 5001
+      },
+      {
+        "id": 2,
+        "name": "P2",
+        "host": "127.0.0.1",
+        "port": 5002
+      }
+    ]
+  }
+}
