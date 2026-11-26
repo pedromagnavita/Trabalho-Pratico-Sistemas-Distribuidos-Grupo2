@@ -19,7 +19,7 @@ from ring_node import RingNode
 class TestRingMutualExclusion(unittest.TestCase):
     def test_concurrent_bank_operations_preserve_consistency_and_mutex(self) -> None:
         config = copy.deepcopy(load_config())
-        # Usa portas dedicadas para teste para nao conflitar com instancias em execucao
+        # portas proprias para nao colidir com uma execucao em andamento
         config["bank_server"]["port"] = 16000
         config["bank_server"]["processing_delay"] = 0.08
         for idx, proc in enumerate(config["ring"]["processes"]):
@@ -52,7 +52,6 @@ class TestRingMutualExclusion(unittest.TestCase):
             for node in nodes:
                 node.start()
 
-            # Dispara 9 operacoes concorrentes simultaneamente entre os 3 nos
             requests = [
                 nodes[0].enqueue_request("DEPOSIT", account="A", amount=100.0),
                 nodes[1].enqueue_request("DEPOSIT", account="A", amount=200.0),

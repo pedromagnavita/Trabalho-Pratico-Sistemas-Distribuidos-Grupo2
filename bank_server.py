@@ -1,13 +1,9 @@
 """
-Servico 1: Servidor Bancario (Recurso Compartilhado / Secao Critica).
+Servidor bancario: recurso compartilhado acessado dentro da secao critica.
 
-Gerencia contas bancarias compartilhadas e processa operacoes enviadas pelos
-processos participantes do anel (BALANCE, DEPOSIT, WITHDRAW, TRANSFER, HISTORY, STATS).
-
-Importante: o servidor NAO utiliza trava global durante o processamento simulado
-da transacao para que a exclusao mutua seja efetivamente garantida pelo algoritmo
-distribuido baseado em anel. Em vez disso, o servidor monitora acessos simultaneos
-a secao critica e registra eventuais violacoes de exclusao mutua.
+Nao ha lock global durante o processamento das operacoes, de modo que a exclusao
+mutua depende exclusivamente do anel. O servidor apenas conta acessos simultaneos
+e registra cada um como violacao.
 """
 
 from __future__ import annotations
@@ -31,8 +27,6 @@ from protocol import (
 
 
 class BankServer:
-    """Servidor TCP concorrente que representa o recurso compartilhado (contas bancarias)."""
-
     def __init__(
         self,
         host: str,
@@ -47,7 +41,6 @@ class BankServer:
         self.processing_delay = float(processing_delay)
         self.quiet = quiet
 
-        # Historico de transacoes e auditoria de exclusao mutua
         self.history: list[dict[str, Any]] = []
         self._metrics_lock = threading.Lock()
         self.active_in_cs = 0
@@ -65,7 +58,6 @@ class BankServer:
             print(f"[{timestamp()}] [BANCO] {text}", flush=True)
 
     def start(self, blocking: bool = True) -> None:
-        """Inicia o servidor TCP no endereco configurado."""
         if blocking:
             self._serve_forever()
         else:
@@ -76,7 +68,6 @@ class BankServer:
             self._ready_event.wait(timeout=5.0)
 
     def stop(self) -> None:
-        """Encerra o servidor TCP de forma limpa."""
         self._stop_event.set()
         if self._server_socket is not None:
             try:
@@ -155,7 +146,7 @@ class BankServer:
         process_name = request.get("process_name", f"P{process_id}")
         token_seq = request.get("token_seq")
 
-        # Consultas de auditoria/estatisticas nao entram na contagem de mutacao de secao critica
+        # STATS e HISTORY sao somente leitura e nao contam como secao critica
         if operation == "STATS":
             with self._metrics_lock:
                 return {
@@ -181,7 +172,6 @@ class BankServer:
                     "max_concurrent_cs": self.max_concurrent_cs,
                 }
 
-        # Monitoramento de exclusao mutua na entrada da secao critica
         with self._metrics_lock:
             self.active_in_cs += 1
             self.total_requests += 1
@@ -246,7 +236,6 @@ class BankServer:
                 "message": f"Saldo da conta {account}: R$ {bal:.2f}",
             }
 
-        # Validacao de valor para DEPOSIT, WITHDRAW e TRANSFER
         try:
             value = round(float(amount), 2)
         except (TypeError, ValueError):
@@ -259,7 +248,7 @@ class BankServer:
             if account not in self.accounts:
                 return self._error_response(operation, f"Conta '{account}' inexistente.")
 
-            # Leitura -> atraso simulado de processamento -> escrita (vulneravel sem exclusao mutua)
+            # le, espera e escreve: perde atualizacoes se houver concorrencia
             current_balance = self.accounts[account]
             if self.processing_delay > 0:
                 time.sleep(self.processing_delay)

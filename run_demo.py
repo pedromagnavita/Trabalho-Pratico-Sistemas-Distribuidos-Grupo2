@@ -1,10 +1,6 @@
 """
-Demonstracao automatizada ponta-a-ponta do Algoritmo de Exclusao Mutua baseado em Anel.
-
-Sobe o Servidor Bancario e todos os processos do anel definidos em config.json
-usando sockets TCP reais, dispara operacoes concorrentes simultaneamente a partir
-de todos os nos e verifica a consistencia dos saldos e a ausencia de violacoes
-de exclusao mutua.
+Demonstracao: sobe o banco e os nos do anel, dispara operacoes concorrentes
+e confere saldos finais e ausencia de violacoes de exclusao mutua.
 """
 
 from __future__ import annotations
@@ -44,7 +40,7 @@ def run_demo() -> None:
         )
         nodes.append(node)
 
-    # Inicia todos os nos do anel (P0 inicia com o TOKEN)
+    # P0 gera o token inicial
     for node in nodes:
         node.start()
 
@@ -52,13 +48,10 @@ def run_demo() -> None:
 
     print("\n--- Disparando operacoes bancarias simultaneas em P0, P1 e P2 ---\n", flush=True)
     pending: list[PendingRequest] = [
-        # P0: Deposita 200 em A, transfere 150 de A para B
         nodes[0].enqueue_request("DEPOSIT", account="A", amount=200.0),
         nodes[0].enqueue_request("TRANSFER", account="A", target_account="B", amount=150.0),
-        # P1: Saca 100 de B, transfere 250 de B para C
         nodes[1].enqueue_request("WITHDRAW", account="B", amount=100.0),
         nodes[1].enqueue_request("TRANSFER", account="B", target_account="C", amount=250.0),
-        # P2: Transfere 300 de C para A, consulta saldo geral
         nodes[2].enqueue_request("TRANSFER", account="C", target_account="A", amount=300.0),
         nodes[2].enqueue_request("BALANCE", account="ALL"),
     ]
@@ -68,7 +61,6 @@ def run_demo() -> None:
         if not finished:
             raise TimeoutError("Tempo excedido aguardando conclusao das operacoes no anel.")
 
-    # Consulta estatisticas finais diretamente no Servidor Bancario
     stats = send_message(
         host=bank_cfg["host"],
         port=bank_cfg["port"],
@@ -76,7 +68,6 @@ def run_demo() -> None:
         expect_reply=True,
     )
 
-    # Encerra nos e servidor
     for node in nodes:
         node.stop()
     server.stop()
@@ -84,7 +75,7 @@ def run_demo() -> None:
     print("\n" + "=" * 72)
     print(" RELATORIO FINAL DA DEMONSTRACAO")
     print("=" * 72)
-    # Calculo esperado:
+    # Saldos esperados:
     # A: 1000 + 200 - 150 + 300 = 1350.00
     # B: 1000 + 150 - 100 - 250 =  800.00
     # C: 1000 + 250 - 300       =  950.00

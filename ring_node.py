@@ -1,14 +1,8 @@
 """
-Servico 2: No do Anel (Algoritmo de Exclusao Mutua Distribuido baseado em Anel + Cliente Bancario).
+No do anel: exclusao mutua por passagem de token, com cliente do servidor bancario.
 
-Cada processo P_i:
-1. Escuta mensagens TCP de seu antecessor no anel logico para receber o TOKEN;
-2. Mantem uma fila local de requisicoes bancarias (deposito, saque, transferencia, saldo);
-3. Quando recebe o TOKEN:
-   - Se ha uma requisicao pendente, retem o TOKEN, entra na Secao Critica atuando como
-     cliente TCP do Servidor Bancario, aguarda a resposta e sai da Secao Critica;
-   - Em seguida (ou imediatamente, caso nao queira usar a Secao Critica), encaminha
-     o TOKEN ao seu sucessor P_{(i + 1) mod N}.
+Cada no recebe o token do antecessor. Se tiver uma requisicao na fila, envia ao
+banco enquanto segura o token; depois repassa o token ao sucessor.
 """
 
 from __future__ import annotations
@@ -36,16 +30,12 @@ from protocol import (
 
 @dataclass
 class PendingRequest:
-    """Representa uma requisicao bancaria enfileirada aguardando a chegada do TOKEN."""
-
     payload: dict[str, Any]
     done_event: threading.Event = field(default_factory=threading.Event)
     response: dict[str, Any] | None = None
 
 
 class RingNode:
-    """Implementa um processo P_i no algoritmo de exclusao mutua baseado em anel."""
-
     def __init__(
         self,
         process_id: int,
@@ -61,7 +51,6 @@ class RingNode:
         self.successor = get_successor(config, process_id)
         self.bank_cfg = config["bank_server"]
 
-        # Definicao explicita do numero/ID e endereco do processo
         self.process_id: int = self.proc_info["id"]
         self.name: str = self.proc_info["name"]
         self.host: str = self.proc_info["host"]
@@ -81,7 +70,6 @@ class RingNode:
         self.verbose_token = verbose_token
         self.quiet = quiet
 
-        # Estado local do algoritmo de anel
         self.pending_requests: queue.Queue[PendingRequest] = queue.Queue()
         self._token_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self.has_token = False
@@ -100,7 +88,6 @@ class RingNode:
             print(f"[{timestamp()}] [{self.name}] {text}", flush=True)
 
     def start(self) -> None:
-        """Inicia o servidor TCP do anel e a thread responsavel pelo processamento do TOKEN."""
         self._listener_thread = threading.Thread(
             target=self._listen_ring, name=f"RingListener-{self.name}", daemon=True
         )
@@ -131,7 +118,6 @@ class RingNode:
             )
 
     def stop(self) -> None:
-        """Encerra as threads e libera a porta TCP do processo."""
         self._stop_event.set()
         if self._server_socket is not None:
             try:
@@ -150,10 +136,6 @@ class RingNode:
         target_account: str = "",
         amount: float | None = None,
     ) -> PendingRequest:
-        """
-        Enfileira uma operacao bancaria para execucao assim que este processo
-        receber o TOKEN do anel.
-        """
         payload: dict[str, Any] = {
             "type": MSG_BANK_REQUEST,
             "process_id": self.process_id,
@@ -185,7 +167,6 @@ class RingNode:
         return op
 
     def _listen_ring(self) -> None:
-        """Recebe mensagens TCP vindas do antecessor no anel."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_sock:
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_sock.bind((self.host, self.port))
@@ -220,7 +201,6 @@ class RingNode:
                     self._stop_event.set()
 
     def _token_worker(self) -> None:
-        """Processa o TOKEN recebido: entra na Secao Critica (se desejado) e repassa ao sucessor."""
         while not self._stop_event.is_set():
             try:
                 token_msg = self._token_queue.get(timeout=0.2)
@@ -232,7 +212,7 @@ class RingNode:
             token_seq = token_msg.get("seq", 0)
             sender_name = token_msg.get("sender_name", f"P{token_msg.get('sender_id', '?')}")
 
-            # Verifica se ha requisicao pendente (atende 1 por rodada para garantir justica/sem starvation)
+            # uma requisicao por passagem do token, para nao monopolizar o anel
             pending: PendingRequest | None = None
             try:
                 pending = self.pending_requests.get_nowait()
@@ -255,7 +235,6 @@ class RingNode:
             if self._stop_event.is_set():
                 break
 
-            # Prepara e encaminha o TOKEN ao proximo processo do anel
             next_token = {
                 "type": MSG_TOKEN,
                 "token_id": token_msg.get("token_id", "RING-TOKEN-1"),
@@ -269,7 +248,6 @@ class RingNode:
     def _enter_critical_section(
         self, pending: PendingRequest, token_seq: int, sender_name: str
     ) -> None:
-        """Executa a operacao bancaria no servidor enquanto retem o TOKEN."""
         self.in_critical_section = True
         self.cs_entries += 1
         request_payload = dict(pending.payload)
@@ -310,7 +288,7 @@ class RingNode:
             )
 
     def _forward_token(self, token_msg: dict[str, Any]) -> None:
-        """Envia o TOKEN via TCP ao processo sucessor, tentando novamente caso ele ainda esteja iniciando."""
+        """Reenvia ate o sucessor aceitar a conexao."""
         warned = False
         while not self._stop_event.is_set():
             try:
@@ -346,7 +324,6 @@ class RingNode:
         )
 
     def run_interactive(self) -> None:
-        """Interface interativa de terminal para enfileirar operacoes bancarias."""
         self.print_help()
         while not self._stop_event.is_set():
             try:

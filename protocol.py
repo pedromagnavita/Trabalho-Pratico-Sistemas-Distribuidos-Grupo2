@@ -1,9 +1,4 @@
-"""
-Protocolo de comunicacao TCP com mensagens JSON delimitadas por quebra de linha.
-
-Utilizado tanto pelo Servidor Bancario (recurso compartilhado / secao critica)
-quanto pelos Nos do Anel (algoritmo de exclusao mutua distribuida baseado em anel).
-"""
+"""Mensagens JSON delimitadas por quebra de linha sobre TCP, usadas pelo banco e pelos nos."""
 
 from __future__ import annotations
 
@@ -13,7 +8,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# Tipos de mensagens trocadas no sistema distribuido
 MSG_TOKEN = "TOKEN"
 MSG_BANK_REQUEST = "BANK_REQUEST"
 MSG_BANK_RESPONSE = "BANK_RESPONSE"
@@ -23,19 +17,17 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 
 
 def timestamp() -> str:
-    """Retorna horario atual formatado para logs."""
+    """Horario atual (HH:MM:SS.mmm) para logs."""
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
 
 def load_config(config_path: str | Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
-    """Carrega a configuracao do servidor bancario e dos processos do anel."""
     path = Path(config_path)
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def get_process_by_id(config: dict[str, Any], process_id: int) -> dict[str, Any]:
-    """Localiza a definicao (id, nome, host, porta) de um processo pelo seu numero."""
     for proc in config["ring"]["processes"]:
         if proc["id"] == process_id:
             return proc
@@ -44,10 +36,7 @@ def get_process_by_id(config: dict[str, Any], process_id: int) -> dict[str, Any]
 
 
 def get_successor(config: dict[str, Any], process_id: int) -> dict[str, Any]:
-    """
-    Retorna o processo sucessor no anel logico: P_{(indice + 1) mod N}.
-    A topologia e derivada da lista ordenada de processos em config.json.
-    """
+    """Sucessor no anel: proximo da lista de processos do config.json, com volta ao inicio."""
     processes = config["ring"]["processes"]
     for idx, proc in enumerate(processes):
         if proc["id"] == process_id:
@@ -56,16 +45,12 @@ def get_successor(config: dict[str, Any], process_id: int) -> dict[str, Any]:
 
 
 def send_json(conn: socket.socket, message: dict[str, Any]) -> None:
-    """Serializa um dicionario em JSON UTF-8 finalizado com '\\n' e envia via socket TCP."""
     payload = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
     conn.sendall(payload)
 
 
 def receive_json(conn: socket.socket) -> dict[str, Any] | None:
-    """
-    Recebe uma mensagem JSON delimitada por quebra de linha ('\\n') de um socket TCP.
-    Retorna None caso a conexao seja encerrada antes de receber dados.
-    """
+    """Le uma linha JSON do socket. Retorna None se a conexao fechar sem dados."""
     with conn.makefile("r", encoding="utf-8") as reader:
         line = reader.readline()
     if not line:
@@ -80,10 +65,7 @@ def send_message(
     expect_reply: bool = False,
     timeout: float = 5.0,
 ) -> dict[str, Any] | None:
-    """
-    Abre uma conexao TCP com (host, port), envia a mensagem JSON e, opcionalmente,
-    aguarda uma resposta JSON antes de encerrar o socket.
-    """
+    """Abre uma conexao, envia a mensagem e, se pedido, devolve a resposta."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(timeout)
         sock.connect((host, port))
